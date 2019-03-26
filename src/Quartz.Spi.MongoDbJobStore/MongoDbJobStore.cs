@@ -112,9 +112,10 @@ namespace Quartz.Spi.MongoDbJobStore
 
         public bool SupportsPersistence => true;
         public long EstimatedTimeToReleaseAndAcquireTrigger => 200;
-        public bool Clustered => false;
+        public bool Clustered => false; // TODO
         public string InstanceId { get; set; }
         public string InstanceName { get; set; }
+        
         public int ThreadPoolSize { get; set; }
 
         public Task Initialize(ITypeLoadHelper loadHelper, ISchedulerSignaler signaler,

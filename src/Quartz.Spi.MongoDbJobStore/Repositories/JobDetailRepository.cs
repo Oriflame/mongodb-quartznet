@@ -9,11 +9,10 @@ using Quartz.Spi.MongoDbJobStore.Models.Id;
 
 namespace Quartz.Spi.MongoDbJobStore.Repositories
 {
-    [CollectionName("jobs")]
     internal class JobDetailRepository : BaseRepository<JobDetail>
     {
-        public JobDetailRepository(IMongoDatabase database, string instanceName, string collectionPrefix = null)
-            : base(database, instanceName, collectionPrefix)
+        public JobDetailRepository(IMongoDatabase database, string instanceName, string collectionName)
+            : base(database, instanceName, JobDetailId.JobDetailType, collectionName)
         {
         }
 
@@ -27,6 +26,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
             return
                 await Collection.Find(FilterBuilder.And(
                     FilterBuilder.Eq(detail => detail.Id.InstanceName, InstanceName),
+                    FilterBuilder.Eq(detail => detail.Id.Type, Type),
                     FilterBuilder.Regex(detail => detail.Id.Group, matcher.ToBsonRegularExpression())))
                     .Project(detail => detail.Id.GetJobKey())
                     .ToListAsync();
@@ -35,7 +35,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         public async Task<IEnumerable<string>> GetJobGroupNames()
         {
             return await Collection
-                .Distinct(detail => detail.Id.Group, detail => detail.Id.InstanceName == InstanceName)
+                .Distinct(detail => detail.Id.Group, detail => detail.Id.InstanceName == InstanceName && detail.Id.Type == Type)
                 .ToListAsync();
         } 
 
@@ -74,7 +74,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
 
         public async Task<long> GetCount()
         {
-            return await Collection.Find(detail => detail.Id.InstanceName == InstanceName).CountAsync();
+            return await Collection.Find(detail => detail.Id.InstanceName == InstanceName && detail.Id.Type == Type).CountAsync();
         }
     }
 }

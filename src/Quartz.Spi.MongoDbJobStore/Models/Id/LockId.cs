@@ -5,12 +5,15 @@ namespace Quartz.Spi.MongoDbJobStore.Models.Id
 {
     internal class LockId : BaseId
     {
+        public const string LokType = "Lock";
+        
         public LockId() { }
 
         public LockId(LockType lockType, string instanceName)
         {
             LockType = lockType;
             InstanceName = instanceName;
+            Type = LokType;
         }
 
         [BsonRepresentation(BsonType.String)]

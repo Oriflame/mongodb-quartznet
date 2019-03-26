@@ -2,6 +2,8 @@
 {
     internal class CalendarId : BaseId
     {
+        public const string CalendarType = "Calendar";
+        
         public CalendarId()
         {
         }
@@ -10,6 +12,7 @@
         {
             InstanceName = instanceName;
             CalendarName = calendarName;
+            Type = CalendarType;
         }
 
         public string CalendarName { get; set; }

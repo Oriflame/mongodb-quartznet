@@ -8,17 +8,16 @@ using Quartz.Spi.MongoDbJobStore.Models.Id;
 
 namespace Quartz.Spi.MongoDbJobStore.Repositories
 {
-    [CollectionName("pausedTriggerGroups")]
     internal class PausedTriggerGroupRepository : BaseRepository<PausedTriggerGroup>
     {
-        public PausedTriggerGroupRepository(IMongoDatabase database, string instanceName, string collectionPrefix = null)
-            : base(database, instanceName, collectionPrefix)
+        public PausedTriggerGroupRepository(IMongoDatabase database, string instanceName, string collectionName)
+            : base(database, instanceName, PausedTriggerGroupId.PausedTriggerGroupType, collectionName)
         {
         }
 
         public async Task<List<string>> GetPausedTriggerGroups()
         {
-            return await Collection.Find(group => group.Id.InstanceName == InstanceName)
+            return await Collection.Find(group => group.Id.InstanceName == InstanceName && group.Id.Type == Type)
                 .Project(group => group.Id.Group)
                 .ToListAsync();
         }
@@ -30,7 +29,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
 
         public async Task AddPausedTriggerGroup(string group)
         {
-            await Collection.InsertOneAsync(new PausedTriggerGroup()
+            await Collection.InsertOneAsync(new PausedTriggerGroup
             {
                 Id = new PausedTriggerGroupId(group, InstanceName)
             });
@@ -39,7 +38,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         public async Task DeletePausedTriggerGroup(GroupMatcher<TriggerKey> matcher)
         {
             var regex = matcher.ToBsonRegularExpression().ToRegex();
-            await Collection.DeleteManyAsync(group => group.Id.InstanceName == InstanceName && regex.IsMatch(group.Id.Group));
+            await Collection.DeleteManyAsync(group => group.Id.InstanceName == InstanceName && regex.IsMatch(group.Id.Group) && group.Id.Type == Type);
         }
 
         public async Task DeletePausedTriggerGroup(string groupName)

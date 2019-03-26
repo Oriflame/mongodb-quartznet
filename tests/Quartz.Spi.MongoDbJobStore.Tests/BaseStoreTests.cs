@@ -20,8 +20,8 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
                 [StdSchedulerFactory.PropertySchedulerInstanceId] = $"{Environment.MachineName}-{Guid.NewGuid()}",
                 [StdSchedulerFactory.PropertyJobStoreType] = typeof(MongoDbJobStore).AssemblyQualifiedName,
                 [$"{StdSchedulerFactory.PropertyJobStorePrefix}.{StdSchedulerFactory.PropertyDataSourceConnectionString}"]
-                    = "mongodb://localhost/quartz",
-                [$"{StdSchedulerFactory.PropertyJobStorePrefix}.collectionPrefix"] = "prefix"
+                    = "mongodb://localhost:32768/quartz",
+                [$"{StdSchedulerFactory.PropertyJobStorePrefix}.collectionPrefix"] = "quartztest"
             };
 
             var scheduler = new StdSchedulerFactory(properties);

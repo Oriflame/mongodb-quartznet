@@ -6,25 +6,17 @@ using Quartz.Spi.MongoDbJobStore.Models.Id;
 
 namespace Quartz.Spi.MongoDbJobStore.Repositories
 {
-    [CollectionName("firedTriggers")]
     internal class FiredTriggerRepository : BaseRepository<FiredTrigger>
     {
-        public FiredTriggerRepository(IMongoDatabase database, string instanceName, string collectionPrefix = null)
-            : base(database, instanceName, collectionPrefix)
+        public FiredTriggerRepository(IMongoDatabase database, string instanceName, string collectionName)
+            : base(database, instanceName, FiredTriggerId.FiredTriggerType, collectionName)
         {
         }
 
         public async Task<List<FiredTrigger>> GetFiredTriggers(JobKey jobKey)
         {
             return
-                await Collection.Find(trigger => trigger.Id.InstanceName == InstanceName && trigger.JobKey == jobKey).ToListAsync();
-        }
-
-        public async Task<List<FiredTrigger>> GetFiredTriggers(string instanceId)
-        {
-            return
-                await Collection.Find(trigger => trigger.Id.InstanceName == InstanceName && trigger.InstanceId == instanceId)
-                    .ToListAsync();
+                await Collection.Find(trigger => trigger.Id.InstanceName == InstanceName && trigger.JobKey == jobKey && trigger.Id.Type == Type).ToListAsync();
         }
 
         public async Task<List<FiredTrigger>> GetRecoverableFiredTriggers(string instanceId)
@@ -32,7 +24,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
             return
                 await Collection.Find(
                     trigger =>
-                        trigger.Id.InstanceName == InstanceName && trigger.InstanceId == instanceId &&
+                        trigger.Id.InstanceName == InstanceName && trigger.InstanceId == instanceId && trigger.Id.Type == Type &&
                         trigger.RequestsRecovery).ToListAsync();
         }
 
@@ -50,7 +42,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         {
             var result =
                 await Collection.DeleteManyAsync(
-                    trigger => trigger.Id.InstanceName == InstanceName && trigger.InstanceId == instanceId);
+                    trigger => trigger.Id.InstanceName == InstanceName && trigger.InstanceId == instanceId && trigger.Id.Type == Type);
             return result.DeletedCount;
         }
 

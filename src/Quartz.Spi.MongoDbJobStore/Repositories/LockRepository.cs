@@ -7,13 +7,12 @@ using Quartz.Spi.MongoDbJobStore.Models.Id;
 
 namespace Quartz.Spi.MongoDbJobStore.Repositories
 {
-    [CollectionName("locks")]
     internal class LockRepository : BaseRepository<Lock>
     {
         private static readonly ILog Log = LogManager.GetLogger<LockRepository>();
 
-        public LockRepository(IMongoDatabase database, string instanceName, string collectionPrefix = null)
-            : base(database, instanceName, collectionPrefix)
+        public LockRepository(IMongoDatabase database, string instanceName, string collectionName)
+            : base(database, instanceName, LockId.LokType, collectionName)
         {
         }
 
@@ -61,7 +60,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         public override async Task EnsureIndex()
         {
             await Collection.Indexes.CreateOneAsync(IndexBuilder.Ascending(@lock => @lock.AquiredAt),
-                new CreateIndexOptions() {ExpireAfter = TimeSpan.FromSeconds(30)});
+                new CreateIndexOptions {ExpireAfter = TimeSpan.FromSeconds(30)});
         }
     }
 }

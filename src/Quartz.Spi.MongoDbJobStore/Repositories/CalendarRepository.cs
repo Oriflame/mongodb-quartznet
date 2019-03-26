@@ -1,5 +1,4 @@
 ﻿using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using MongoDB.Driver;
 using Quartz.Spi.MongoDbJobStore.Models;
@@ -7,11 +6,10 @@ using Quartz.Spi.MongoDbJobStore.Models.Id;
 
 namespace Quartz.Spi.MongoDbJobStore.Repositories
 {
-    [CollectionName("calendars")]
     internal class CalendarRepository : BaseRepository<Calendar>
     {
-        public CalendarRepository(IMongoDatabase database, string instanceName, string collectionPrefix = null)
-            : base(database, instanceName, collectionPrefix)
+        public CalendarRepository(IMongoDatabase database, string instanceName, string collectionName)
+            : base(database, instanceName, CalendarId.CalendarType, collectionName)
         {
         }
 
@@ -31,13 +29,13 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         public async Task<IEnumerable<string>> GetCalendarNames()
         {
             return await Collection.Distinct(calendar => calendar.Id.CalendarName,
-                calendar => calendar.Id.InstanceName == InstanceName)
+                calendar => calendar.Id.InstanceName == InstanceName && calendar.Id.Type == Type)
                 .ToListAsync();
         } 
 
         public async Task<long> GetCount()
         {
-            return await Collection.Find(calendar => calendar.Id.InstanceName == InstanceName).CountAsync();
+            return await Collection.Find(calendar => calendar.Id.InstanceName == InstanceName && calendar.Id.Type == Type).CountAsync();
         }
 
         public async Task AddCalendar(Calendar calendar)

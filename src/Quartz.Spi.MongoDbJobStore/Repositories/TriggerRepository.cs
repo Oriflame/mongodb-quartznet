@@ -10,11 +10,10 @@ using Quartz.Spi.MongoDbJobStore.Models.Id;
 
 namespace Quartz.Spi.MongoDbJobStore.Repositories
 {
-    [CollectionName("triggers")]
     internal class TriggerRepository : BaseRepository<Trigger>
     {
-        public TriggerRepository(IMongoDatabase database, string instanceName, string collectionPrefix = null)
-            : base(database, instanceName, collectionPrefix)
+        public TriggerRepository(IMongoDatabase database, string instanceName, string collectionName)
+            : base(database, instanceName, TriggerId.TriggerType, collectionName)
         {
         }
 
@@ -27,7 +26,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         {
             return
                 await Collection.Find(
-                    trigger => trigger.Id.InstanceName == InstanceName && trigger.CalendarName == calendarName).AnyAsync();
+                    trigger => trigger.Id.InstanceName == InstanceName && trigger.CalendarName == calendarName && trigger.Id.Type == Type).AnyAsync();
         }
 
         public async Task<Trigger> GetTrigger(TriggerKey key)
@@ -51,19 +50,20 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
 
         public async Task<List<Trigger>> GetTriggers(string calendarName)
         {
-            return await Collection.Find(FilterBuilder.Where(trigger => trigger.CalendarName == calendarName)).ToListAsync();
+            return await Collection.Find(FilterBuilder.Where(trigger => trigger.CalendarName == calendarName && trigger.Id.Type == Type && trigger.Id.InstanceName == InstanceName)).ToListAsync(); // FJA Instance condition was missing
         }
 
         public async Task<List<Trigger>> GetTriggers(JobKey jobKey)
         {
             return
-                await Collection.Find(trigger => trigger.Id.InstanceName == InstanceName && trigger.JobKey == jobKey).ToListAsync();
+                await Collection.Find(trigger => trigger.Id.InstanceName == InstanceName && trigger.JobKey == jobKey && trigger.Id.Type == Type).ToListAsync();
         }
 
         public async Task<List<TriggerKey>> GetTriggerKeys(GroupMatcher<TriggerKey> matcher)
         {
             return await Collection.Find(FilterBuilder.And(
                 FilterBuilder.Eq(trigger => trigger.Id.InstanceName, InstanceName),
+                FilterBuilder.Eq(trigger => trigger.Id.Type, Type),
                 FilterBuilder.Regex(trigger => trigger.Id.Group, matcher.ToBsonRegularExpression())))
                 .Project(trigger => trigger.Id.GetTriggerKey())
                 .ToListAsync();
@@ -71,7 +71,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
 
         public async Task<List<TriggerKey>> GetTriggerKeys(Models.TriggerState state)
         {
-            return await Collection.Find(trigger => trigger.Id.InstanceName == InstanceName && trigger.State == state)
+            return await Collection.Find(trigger => trigger.Id.InstanceName == InstanceName && trigger.State == state && trigger.Id.Type == Type)
                 .Project(trigger => trigger.Id.GetTriggerKey())
                 .ToListAsync();
         } 
@@ -79,7 +79,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         public async Task<List<string>> GetTriggerGroupNames()
         {
             return await Collection.Distinct(trigger => trigger.Id.Group,
-                trigger => trigger.Id.InstanceName == InstanceName)
+                trigger => trigger.Id.InstanceName == InstanceName && trigger.Id.Type == Type)
                 .ToListAsync();
         }
 
@@ -87,7 +87,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         {
             var regex = matcher.ToBsonRegularExpression().ToRegex();
             return await Collection.Distinct(trigger => trigger.Id.Group,
-                    trigger => trigger.Id.InstanceName == InstanceName && regex.IsMatch(trigger.Id.Group))
+                    trigger => trigger.Id.InstanceName == InstanceName && regex.IsMatch(trigger.Id.Group) && trigger.Id.Type == Type)
                 .ToListAsync();
         }
 
@@ -103,6 +103,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
             var noEarlierThanDateTime = noEarlierThan.UtcDateTime;
 
             return await Collection.Find(trigger => trigger.Id.InstanceName == InstanceName &&
+                                               trigger.Id.Type == Type&&
                                               trigger.State == Models.TriggerState.Waiting &&
                                               trigger.NextFireTime <= noLaterThanDateTime &&
                                               (trigger.MisfireInstruction == -1 ||
@@ -119,14 +120,14 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
 
         public async Task<long> GetCount()
         {
-            return await Collection.Find(trigger => trigger.Id.InstanceName == InstanceName).CountAsync();
+            return await Collection.Find(trigger => trigger.Id.InstanceName == InstanceName && trigger.Id.Type == Type).CountAsync();
         }
 
         public async Task<long> GetCount(JobKey jobKey)
         {
             return
                 await Collection.Find(
-                    FilterBuilder.Where(trigger => trigger.Id.InstanceName == InstanceName && trigger.JobKey == jobKey))
+                    FilterBuilder.Where(trigger => trigger.Id.InstanceName == InstanceName && trigger.JobKey == jobKey && trigger.Id.Type == Type))
                     .CountAsync();
         }
 
@@ -135,7 +136,8 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
             return
                 await Collection.Find(
                     trigger =>
-                        trigger.Id.InstanceName == InstanceName &&
+                        trigger.Id.InstanceName == InstanceName  && 
+                        trigger.Id.Type == Type &&
                         trigger.MisfireInstruction != MisfireInstruction.IgnoreMisfirePolicy &&
                         trigger.NextFireTime < nextFireTime && trigger.State == Models.TriggerState.Waiting)
                     .CountAsync();
@@ -171,6 +173,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         {
             var result = await Collection.UpdateManyAsync(FilterBuilder.And(
                 FilterBuilder.Eq(trigger => trigger.Id.InstanceName, InstanceName),
+                FilterBuilder.Eq(trigger => trigger.Id.Type, Type),
                 FilterBuilder.Regex(trigger => trigger.Id.Group, matcher.ToBsonRegularExpression()),
                 FilterBuilder.In(trigger => trigger.State, oldStates)),
                 UpdateBuilder.Set(trigger => trigger.State, newState));
@@ -182,7 +185,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         {
             var result = await Collection.UpdateManyAsync(
                 trigger =>
-                    trigger.Id.InstanceName == InstanceName && trigger.JobKey == jobKey &&
+                    trigger.Id.InstanceName == InstanceName && trigger.Id.Type == Type && trigger.JobKey == jobKey &&
                     oldStates.Contains(trigger.State),
                 UpdateBuilder.Set(trigger => trigger.State, newState));
             return result.ModifiedCount;
@@ -192,7 +195,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         {
             var result = await Collection.UpdateManyAsync(
                 trigger =>
-                    trigger.Id.InstanceName == InstanceName && trigger.JobKey == jobKey,
+                    trigger.Id.InstanceName == InstanceName && trigger.JobKey == jobKey && trigger.Id.Type == Type,
                 UpdateBuilder.Set(trigger => trigger.State, newState));
             return result.ModifiedCount;
         }
@@ -201,7 +204,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         {
             var result = await Collection.UpdateManyAsync(
                 trigger =>
-                    trigger.Id.InstanceName == InstanceName && oldStates.Contains(trigger.State),
+                    trigger.Id.InstanceName == InstanceName && oldStates.Contains(trigger.State) && trigger.Id.Type == Type,
                 UpdateBuilder.Set(trigger => trigger.State, newState));
             return result.ModifiedCount;
         }
@@ -216,7 +219,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         public async Task<long> DeleteTriggers(JobKey jobKey)
         {
             var result = await Collection.DeleteManyAsync(
-                FilterBuilder.Where(trigger => trigger.Id.InstanceName == InstanceName && trigger.JobKey == jobKey));
+                FilterBuilder.Where(trigger => trigger.Id.InstanceName == InstanceName && trigger.JobKey == jobKey && trigger.Id.Type == Type));
             return result.DeletedCount;
         }
 
@@ -232,7 +235,8 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         public bool HasMisfiredTriggers(DateTime nextFireTime, int maxResults, out List<TriggerKey> results)
         {
             var cursor = Collection.Find(
-                trigger => trigger.Id.InstanceName == InstanceName &&
+                trigger => trigger.Id.InstanceName == InstanceName  && 
+                           trigger.Id.Type == Type &&
                            trigger.MisfireInstruction != MisfireInstruction.IgnoreMisfirePolicy &&
                            trigger.NextFireTime < nextFireTime &&
                            trigger.State == Models.TriggerState.Waiting)

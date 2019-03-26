@@ -2,6 +2,8 @@
 {
     internal class JobDetailId : BaseKeyId
     {
+        public const string JobDetailType = "JobDetail";
+        
         public JobDetailId()
         {
         }
@@ -11,6 +13,7 @@
             InstanceName = instanceName;
             Name = jobKey.Name;
             Group = jobKey.Group;
+            Type = JobDetailType;
         }
 
         public JobKey GetJobKey()

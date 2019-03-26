@@ -2,6 +2,8 @@
 {
     internal class PausedTriggerGroupId : BaseId
     {
+        public const string PausedTriggerGroupType = "PausedTriggerGroup";
+        
         public PausedTriggerGroupId()
         {
         }
@@ -10,6 +12,7 @@
         {
             InstanceName = instanceName;
             Group = group;
+            Type = PausedTriggerGroupType;
         }
 
         public string Group { get; set; }

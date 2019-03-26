@@ -2,6 +2,8 @@
 {
     internal class FiredTriggerId : BaseId
     {
+        public const string FiredTriggerType = "FiredTrigger";
+        
         public FiredTriggerId()
         {
         }
@@ -10,6 +12,7 @@
         {
             InstanceName = instanceName;
             FiredInstanceId = firedInstanceId;
+            Type = FiredTriggerType;
         }
 
         public string FiredInstanceId { get; set; }

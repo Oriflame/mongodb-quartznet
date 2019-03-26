@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Threading.Tasks;
 using Common.Logging;
 using MongoDB.Driver;
@@ -11,20 +10,17 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         private static readonly ILog Log = LogManager.GetLogger(typeof (BaseRepository<>));
         private static readonly HashSet<string> InitializedCollections = new HashSet<string>();
 
-        protected BaseRepository(IMongoDatabase database, string instanceName, string collectionPrefix = null)
+        protected BaseRepository(IMongoDatabase database, string instanceName, string type, string collectionName)
         {
+            Type = type;
             InstanceName = instanceName;
-            var collectionName = GetCollectionName();
-            if (!string.IsNullOrEmpty(collectionPrefix))
-            {
-                collectionName = $"{collectionPrefix}.{collectionName}";
-            }
-
             Collection = database.GetCollection<TDocument>(collectionName);
             EnsureIndexesCreated(collectionName);
         }
 
 
+        protected string Type { get; }
+        
         protected string InstanceName { get; }
 
         protected IMongoCollection<TDocument> Collection { get; }
@@ -49,18 +45,6 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
             await Collection.DeleteManyAsync(FilterBuilder.Empty);
         }
 
-        /// <summary>
-        ///     Determines the collectionname
-        /// </summary>
-        /// <returns>Returns the collectionname.</returns>
-        private string GetCollectionName()
-        {
-            // Check to see if the object (inherited from Entity) has a CollectionName attribute
-            var att = Attribute.GetCustomAttribute(GetType(), typeof (CollectionName));
-            var collectionname = att != null ? ((CollectionName) att).Name : typeof (TDocument).Name;
-
-            return collectionname;
-        }
 
         private void EnsureIndexesCreated(string collectionName)
         {

@@ -35,7 +35,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
 
         public async Task<long> GetCount()
         {
-            return await Collection.Find(calendar => calendar.Id.InstanceName == InstanceName && calendar.Id.Type == Type).CountAsync();
+            return await Collection.Find(calendar => calendar.Id.InstanceName == InstanceName && calendar.Id.Type == Type).CountDocumentsAsync();
         }
 
         public async Task AddCalendar(Calendar calendar)

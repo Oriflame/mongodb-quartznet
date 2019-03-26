@@ -74,7 +74,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
 
         public async Task<long> GetCount()
         {
-            return await Collection.Find(detail => detail.Id.InstanceName == InstanceName && detail.Id.Type == Type).CountAsync();
+            return await Collection.Find(detail => detail.Id.InstanceName == InstanceName && detail.Id.Type == Type).CountDocumentsAsync();
         }
     }
 }

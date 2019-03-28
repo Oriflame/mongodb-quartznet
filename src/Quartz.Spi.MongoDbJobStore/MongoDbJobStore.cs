@@ -8,6 +8,7 @@ using Common.Logging;
 using MongoDB.Driver;
 using Quartz.Impl.AdoJobStore;
 using Quartz.Impl.Matchers;
+using Quartz.Impl.Triggers;
 using Quartz.Spi.MongoDbJobStore.Models;
 using Quartz.Spi.MongoDbJobStore.Models.Id;
 using Quartz.Spi.MongoDbJobStore.Repositories;
@@ -32,6 +33,7 @@ namespace Quartz.Spi.MongoDbJobStore
         private FiredTriggerRepository _firedTriggerRepository;
         private JobDetailRepository _jobDetailRepository;
         private LockManager _lockManager;
+        private ClusterManager _clusterManager;
         private MisfireHandler _misfireHandler;
         private TimeSpan _misfireThreshold = TimeSpan.FromMinutes(1);
         private PausedTriggerGroupRepository _pausedTriggerGroupRepository;
@@ -52,6 +54,10 @@ namespace Quartz.Spi.MongoDbJobStore
             MaxMisfiresToHandleAtATime = 20;
             RetryableActionErrorLogThreshold = 4;
             DbRetryInterval = TimeSpan.FromSeconds(15);
+            
+            DoubleCheckLockMisfireHandler = true;
+            ClusterCheckinInterval = TimeSpan.FromMilliseconds(7500);
+            ClusterCheckinMisfireThreshold = TimeSpan.FromMilliseconds(7500);
         }
 
         public string ConnectionString { get; set; }
@@ -96,7 +102,7 @@ namespace Quartz.Spi.MongoDbJobStore
         /// </summary>
         public int RetryableActionErrorLogThreshold { get; set; }
 
-        protected DateTimeOffset MisfireTime
+        private DateTimeOffset MisfireTime
         {
             get
             {
@@ -111,9 +117,11 @@ namespace Quartz.Spi.MongoDbJobStore
         }
 
         public bool SupportsPersistence => true;
+        
         public long EstimatedTimeToReleaseAndAcquireTrigger => 200;
-        public bool Clustered => false; // TODO
+
         public string InstanceId { get; set; }
+        
         public string InstanceName { get; set; }
         
         public int ThreadPoolSize { get; set; }
@@ -142,20 +150,31 @@ namespace Quartz.Spi.MongoDbJobStore
         public async Task SchedulerStarted(CancellationToken token = default(CancellationToken))
         {
             Log.Trace($"Scheduler {_schedulerId} started");
-            await _schedulerRepository.AddScheduler(new Scheduler
-            {
-                Id = _schedulerId,
-                State = SchedulerState.Started,
-                LastCheckIn = DateTime.Now
-            });
+            
 
-            try
+            if (Clustered)
             {
-                await RecoverJobs();
+                _clusterManager = new ClusterManager(this);
+                await _clusterManager.Initialize().ConfigureAwait(false);
             }
-            catch (Exception ex)
+            else
             {
-                throw new SchedulerConfigException("Failure occurred during job recovery", ex);
+                await _schedulerRepository.AddScheduler(new Scheduler
+                {
+                    Id = _schedulerId,
+                    LastCheckIn = DateTime.Now,
+                    CheckInInterval = ClusterCheckinInterval
+                });
+                
+                try
+                {
+                    await RecoverJobs();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Failure occurred during job recovery: " + ex.Message, ex);
+                    throw new SchedulerConfigException("Failure occurred during job recovery", ex);
+                }
             }
 
             _misfireHandler = new MisfireHandler(this);
@@ -166,14 +185,12 @@ namespace Quartz.Spi.MongoDbJobStore
         public async Task SchedulerPaused(CancellationToken token = default(CancellationToken))
         {
             Log.Trace($"Scheduler {_schedulerId} paused");
-            await _schedulerRepository.UpdateState(_schedulerId.Id, SchedulerState.Paused);
             _schedulerRunning = false;
         }
 
         public async Task SchedulerResumed(CancellationToken token = default(CancellationToken))
         {
             Log.Trace($"Scheduler {_schedulerId} resumed");
-            await _schedulerRepository.UpdateState(_schedulerId.Id, SchedulerState.Resumed);
             _schedulerRunning = true;
         }
 
@@ -191,8 +208,15 @@ namespace Quartz.Spi.MongoDbJobStore
                 {
                 }
             }
-
-            await _schedulerRepository.DeleteScheduler(_schedulerId.Id);
+            
+            if (_clusterManager != null)
+            {
+                await _clusterManager.Shutdown().ConfigureAwait(false);
+            }
+            else
+            {
+                await _schedulerRepository.DeleteScheduler(_schedulerId.Id);                
+            }
         }
 
         public async Task StoreJobAndTrigger(IJobDetail newJob, IOperableTrigger newTrigger,
@@ -467,15 +491,13 @@ namespace Quartz.Spi.MongoDbJobStore
         public async Task<IReadOnlyCollection<JobKey>> GetJobKeys(GroupMatcher<JobKey> matcher,
             CancellationToken token = default(CancellationToken))
         {
-            return (IReadOnlyCollection<JobKey>) new HashSet<JobKey>(await _jobDetailRepository.GetJobsKeys(matcher)
-                );
+            return new HashSet<JobKey>(await _jobDetailRepository.GetJobsKeys(matcher));
         }
 
         public async Task<IReadOnlyCollection<TriggerKey>> GetTriggerKeys(GroupMatcher<TriggerKey> matcher,
             CancellationToken token = default(CancellationToken))
         {
-            return (IReadOnlyCollection<TriggerKey>) new HashSet<TriggerKey>(await _triggerRepository
-                .GetTriggerKeys(matcher));
+            return new HashSet<TriggerKey>(await _triggerRepository.GetTriggerKeys(matcher));
         }
 
         public async Task<IReadOnlyCollection<string>> GetJobGroupNames(
@@ -639,7 +661,7 @@ namespace Quartz.Spi.MongoDbJobStore
         public async Task<IReadOnlyCollection<string>> GetPausedTriggerGroups(
             CancellationToken cancellationToken = default(CancellationToken))
         {
-            return (IReadOnlyCollection<string>) new HashSet<string>(await _pausedTriggerGroupRepository
+            return new HashSet<string>(await _pausedTriggerGroupRepository
                 .GetPausedTriggerGroups());
         }
 
@@ -679,7 +701,7 @@ namespace Quartz.Spi.MongoDbJobStore
                             ResumeTriggerInternal(trigger.GetTrigger().Key, cancellationToken)));
                     }
 
-                    return (IReadOnlyCollection<string>) new HashSet<string>(jobKeys.Select(key => key.Group));
+                    return new HashSet<string>(jobKeys.Select(key => key.Group));
                 }
             }
             catch (AggregateException ex)
@@ -1571,6 +1593,372 @@ namespace Quartz.Spi.MongoDbJobStore
 
             return new RecoverMisfiredJobsResult(hasMoreMisfiredTriggers, misfiredTriggers.Count,
                 earliestNewTime);
+        }
+        
+        //---------------------------------------------------------------------------
+        // Cluster management methods
+        //---------------------------------------------------------------------------
+
+        /// <summary>
+        /// Get or set whether this instance is part of a cluster.
+        /// </summary>
+        public bool Clustered { get; set; }
+
+        /// <summary>
+        /// Get whether the threads spawned by this JobStore should be
+        /// marked as daemon.  Possible threads include the <see cref="MisfireHandler" />
+        /// and the <see cref="ClusterManager"/>.
+        /// </summary>
+        /// <returns></returns>
+        public bool MakeThreadsDaemons { get; set; }
+
+        /// <summary>
+        /// Get whether to check to see if there are Triggers that have misfired
+        /// before actually acquiring the lock to recover them.  This should be
+        /// set to false if the majority of the time, there are misfired
+        /// Triggers.
+        /// </summary>
+        /// <returns></returns>
+        public bool DoubleCheckLockMisfireHandler { get; set; }
+        
+        /// <summary>
+        /// Get or set the frequency at which this instance "checks-in"
+        /// with the other instances of the cluster. -- Affects the rate of
+        /// detecting failed instances.
+        /// </summary>
+        [TimeSpanParseRule(TimeSpanParseRule.Milliseconds)]
+        public TimeSpan ClusterCheckinInterval { get; set; }
+
+        /// <summary>
+        /// The time span by which a check-in must have missed its
+        /// next-fire-time, in order for it to be considered "misfired" and thus
+        /// other scheduler instances in a cluster can consider a "misfired" scheduler
+        /// instance as failed or dead.
+        /// </summary>
+        [TimeSpanParseRule(TimeSpanParseRule.Milliseconds)]
+        public TimeSpan ClusterCheckinMisfireThreshold { get; set; }
+        
+        protected bool firstCheckIn = true;
+
+        protected internal DateTime LastCheckin { get; set; } = DateTime.UtcNow;
+
+        protected internal virtual async Task<bool> DoCheckin(
+            string requestorId,
+            CancellationToken cancellationToken = default(CancellationToken))
+        {
+            bool recovered = false;
+
+            // Other than the first time, always checkin first to make sure there is
+            // work to be done before we acquire the lock (since that is expensive,
+            // and is almost never necessary).  This must be done in a separate
+            // transaction to prevent a deadlock under recovery conditions.
+            IReadOnlyList<Scheduler> failedRecords = null;
+            if (!firstCheckIn)
+            {
+                failedRecords = await ClusterCheckIn(cancellationToken).ConfigureAwait(false);
+            }
+
+            if (firstCheckIn || failedRecords != null && failedRecords.Count > 0)
+            {
+                using (_lockManager.AcquireLock(LockType.StateAccess, requestorId))
+                {
+                    // Now that we own the lock, make sure we still have work to do.
+                    // The first time through, we also need to make sure we update/create our state record
+                    if (firstCheckIn)
+                    {
+                        failedRecords = await ClusterCheckIn(cancellationToken).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        failedRecords = await FindFailedInstances(cancellationToken).ConfigureAwait(false);
+                    }
+
+                    if (failedRecords.Count > 0)
+                    {
+                        using (_lockManager.AcquireLock(LockType.TriggerAccess, requestorId))
+                        {
+                            await ClusterRecover(failedRecords, cancellationToken).ConfigureAwait(false);
+                            recovered = true;
+                        }
+                    }                    
+                }
+            }
+
+            firstCheckIn = false;
+
+            return recovered;
+        }
+
+        /// <summary>
+        /// Get a list of all scheduler instances in the cluster that may have failed.
+        /// This includes this scheduler if it is checking in for the first time.
+        /// </summary>
+        private async Task<IReadOnlyList<Scheduler>> FindFailedInstances(
+            CancellationToken cancellationToken = default(CancellationToken))
+        {
+            try
+            {
+                List<Scheduler> failedInstances = new List<Scheduler>();
+                bool foundThisScheduler = false;
+
+                var states = await _schedulerRepository.SelectSchedulerStateRecords(null, cancellationToken).ConfigureAwait(false);
+
+                foreach (Scheduler rec in states)
+                {
+                    // find own record...
+                    if (rec.Id.Id.Equals(InstanceId))
+                    {
+                        foundThisScheduler = true;
+                        if (firstCheckIn)
+                        {
+                            failedInstances.Add(rec);
+                        }
+                    }
+                    else
+                    {
+                        // find failed instances...
+                        if (CalcFailedIfAfter(rec) < SystemTime.UtcNow())
+                        {
+                            failedInstances.Add(rec);
+                        }
+                    }
+                }
+
+                // The first time through, also check for orphaned fired triggers.
+                if (firstCheckIn)
+                {
+                    failedInstances.AddRange(await FindOrphanedFailedInstances(states, cancellationToken).ConfigureAwait(false));
+                }
+
+                // If not the first time but we didn't find our own instance, then
+                // Someone must have done recovery for us.
+                if (!foundThisScheduler && !firstCheckIn)
+                {
+                    // TODO: revisit when handle self-failed-out impl'ed (see TODO in clusterCheckIn() below)
+                    Log.Warn($"This scheduler instance ({InstanceId}) is still active but was recovered by another instance in the cluster.  This may cause inconsistent behavior.");
+                }
+
+                return failedInstances;
+            }
+            catch (Exception e)
+            {
+                LastCheckin = DateTime.UtcNow;
+                throw new JobPersistenceException($"Failure identifying failed instances when checking-in: {e.Message}", e);
+            }
+        }
+
+        /// <summary>
+        /// Create dummy <see cref="SchedulerStateRecord" /> objects for fired triggers
+        /// that have no scheduler state record.  Checkin timestamp and interval are
+        /// left as zero on these dummy <see cref="SchedulerStateRecord" /> objects.
+        /// </summary>
+        /// <param name="schedulerStateRecords">List of all current <see cref="SchedulerStateRecord" />s</param>
+        /// <param name="cancellationToken">The cancellation instruction.</param>
+        private async Task<IReadOnlyList<Scheduler>> FindOrphanedFailedInstances(
+            IReadOnlyCollection<Scheduler> schedulerStateRecords,
+            CancellationToken cancellationToken)
+        {
+            List<Scheduler> orphanedInstances = new List<Scheduler>();
+
+            var names = await _firedTriggerRepository.SelectFiredTriggerInstanceIds().ConfigureAwait(false);
+            var allFiredTriggerInstanceNames = new HashSet<string>(names);
+            if (allFiredTriggerInstanceNames.Count > 0)
+            {
+                foreach (Scheduler rec in schedulerStateRecords)
+                {
+                    allFiredTriggerInstanceNames.Remove(rec.Id.Id);
+                }
+
+                foreach (string name in allFiredTriggerInstanceNames)
+                {
+                    Scheduler orphanedInstance = new Scheduler
+                    {
+                        Id = new SchedulerId(InstanceId, InstanceName)
+                    };
+
+                    orphanedInstances.Add(orphanedInstance);
+
+                    Log.Warn($"Found orphaned fired triggers for instance: {orphanedInstance.Id.Id}");
+                }
+            }
+
+            return orphanedInstances;
+        }
+
+        private DateTimeOffset CalcFailedIfAfter(Scheduler rec)
+        {
+            TimeSpan passed = SystemTime.UtcNow() - LastCheckin;
+            TimeSpan ts = rec.CheckInInterval > passed ? rec.CheckInInterval : passed;
+            return rec.LastCheckIn.Add(ts).Add(TimeSpan.FromMilliseconds(7500));
+        }
+
+        private async Task<IReadOnlyList<Scheduler>> ClusterCheckIn(
+            CancellationToken cancellationToken = default(CancellationToken))
+        {
+            var failedInstances = await FindFailedInstances(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                // TODO: handle self-failed-out
+
+                // check in...
+                LastCheckin = DateTime.UtcNow;
+                
+                if (await _schedulerRepository.UpdateLastCheckin(InstanceId, LastCheckin).ConfigureAwait(false) == 0)
+                {
+                    var scheduler = new Scheduler
+                    {
+                        Id = new SchedulerId(InstanceId, InstanceName),
+                        LastCheckIn = LastCheckin,
+                        CheckInInterval = ClusterCheckinInterval
+                    };
+                    
+                    await _schedulerRepository.AddScheduler(scheduler).ConfigureAwait(false);
+                }
+            }
+            catch (Exception e)
+            {
+                throw new JobPersistenceException("Failure updating scheduler state when checking-in: " + e.Message, e);
+            }
+
+            return failedInstances;
+        }
+
+        private async Task ClusterRecover(
+            IReadOnlyList<Scheduler> failedInstances,
+            CancellationToken cancellationToken = default(CancellationToken))
+        {
+            if (failedInstances.Count > 0)
+            {
+                long recoverIds = SystemTime.UtcNow().Ticks;
+
+                LogWarnIfNonZero(failedInstances.Count,$"ClusterManager: detected {failedInstances.Count} failed or restarted instances.");
+                try
+                {
+                    foreach (Scheduler scheduler in failedInstances)
+                    {
+                        Log.Info($"ClusterManager: Scanning for instance \"{scheduler.Id.Id}\"'s failed in-progress jobs.");
+
+                        var firedTriggerRecs = await _firedTriggerRepository.GetByInstanceId(scheduler.Id.Id).ConfigureAwait(false);
+
+                        int acquiredCount = 0;
+                        int recoveredCount = 0;
+                        int otherCount = 0;
+
+                        var triggerKeys = new HashSet<TriggerKey>();
+
+                        foreach (FiredTrigger firedTrigger in firedTriggerRecs)
+                        {
+                            TriggerKey tKey = firedTrigger.TriggerKey;
+                            JobKey jKey = firedTrigger.JobKey;
+
+                            triggerKeys.Add(tKey);
+
+                            // release blocked triggers..
+                            if (firedTrigger.State.Equals(Models.TriggerState.Blocked))
+                            {
+                                await _triggerRepository.UpdateTriggersStates(jKey, Models.TriggerState.Waiting, Models.TriggerState.Blocked).ConfigureAwait(false);
+                            }
+                            else if (firedTrigger.State.Equals(Models.TriggerState.PausedBlocked))
+                            {
+                                await _triggerRepository.UpdateTriggersStates(jKey, Models.TriggerState.Paused, Models.TriggerState.PausedBlocked).ConfigureAwait(false);
+                            }
+
+                            // release acquired triggers..
+                            if (firedTrigger.State.Equals(Models.TriggerState.Acquired))
+                            {
+                                await _triggerRepository.UpdateTriggersStates(jKey, Models.TriggerState.Waiting, Models.TriggerState.Acquired).ConfigureAwait(false);
+                                acquiredCount++;
+                            }
+                            else if (firedTrigger.RequestsRecovery)
+                            {
+                                // handle jobs marked for recovery that were not fully executed..
+                                if (await _jobDetailRepository.JobExists(jKey).ConfigureAwait(false))
+                                {
+                                    SimpleTriggerImpl recoveryTrigger = new SimpleTriggerImpl($"recover_{scheduler.Id.Id}_{Convert.ToString(recoverIds++, CultureInfo.InvariantCulture)}",
+                                            SchedulerConstants.DefaultRecoveryGroup, firedTrigger.Fired)
+                                        {
+                                            JobName = jKey.Name,
+                                            JobGroup = jKey.Group,
+                                            MisfireInstruction = MisfireInstruction.SimpleTrigger.FireNow,
+                                            Priority = firedTrigger.Priority
+                                        };
+
+                                    JobDataMap jd = await _triggerRepository.GetTriggerJobDataMap(tKey).ConfigureAwait(false);
+                                    jd.Put(SchedulerConstants.FailedJobOriginalTriggerName, tKey.Name);
+                                    jd.Put(SchedulerConstants.FailedJobOriginalTriggerGroup, tKey.Group);
+                                    jd.Put(SchedulerConstants.FailedJobOriginalTriggerFiretime, Convert.ToString(firedTrigger.Fired, CultureInfo.InvariantCulture));
+                                    recoveryTrigger.JobDataMap = jd;
+
+                                    recoveryTrigger.ComputeFirstFireTimeUtc(null);
+                                    await StoreTriggerInternal(recoveryTrigger, null, false, Models.TriggerState.Acquired, false, true, cancellationToken).ConfigureAwait(false);
+                                    recoveredCount++;
+                                }
+                                else
+                                {
+                                    Log.Warn($"ClusterManager: failed job '{jKey}' no longer exists, cannot schedule recovery.");
+                                    otherCount++;
+                                }
+                            }
+                            else
+                            {
+                                otherCount++;
+                            }
+
+                            // free up stateful job's triggers
+                            if (firedTrigger.ConcurrentExecutionDisallowed)
+                            {
+                                await _triggerRepository.UpdateTriggersStates(jKey, Models.TriggerState.Waiting, Models.TriggerState.Blocked).ConfigureAwait(false);
+                                await _triggerRepository.UpdateTriggersStates(jKey, Models.TriggerState.Paused, Models.TriggerState.PausedBlocked).ConfigureAwait(false);
+                            }
+                        }
+
+                        await _firedTriggerRepository.DeleteFiredTrigger(scheduler.Id.Id).ConfigureAwait(false);
+
+                        // Check if any of the fired triggers we just deleted were the last fired trigger
+                        // records of a COMPLETE trigger.
+                        int completeCount = 0;
+                        foreach (TriggerKey triggerKey in triggerKeys)
+                        {
+                            if (Models.TriggerState.Complete.Equals(await _triggerRepository.GetTriggerState(triggerKey).ConfigureAwait(false)))
+                            {
+                                var firedTriggers = await _firedTriggerRepository.GetFiredTriggers(triggerKey).ConfigureAwait(false);
+                                if (firedTriggers.Count == 0)
+                                {
+                                    if (await RemoveTrigger(triggerKey, cancellationToken).ConfigureAwait(false))
+                                    {
+                                        completeCount++;
+                                    }
+                                }
+                            }
+                        }
+                        LogWarnIfNonZero(acquiredCount, $"ClusterManager: ......Freed {acquiredCount} acquired trigger(s).");
+                        LogWarnIfNonZero(completeCount,$"ClusterManager: ......Deleted {completeCount} complete triggers(s).");
+                        LogWarnIfNonZero(recoveredCount, $"ClusterManager: ......Scheduled {recoveredCount} recoverable job(s) for recovery.");
+                        LogWarnIfNonZero(otherCount,$"ClusterManager: ......Cleaned-up {otherCount} other failed job(s).");
+
+                        if (scheduler.Id.Id.Equals(InstanceId) == false)
+                        {
+                            await _schedulerRepository.DeleteScheduler(scheduler.Id.Id).ConfigureAwait(false);
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    throw new JobPersistenceException("Failure recovering jobs: " + e.Message, e);
+                }
+            }
+        }
+        
+        protected virtual void LogWarnIfNonZero(int val, string warning)
+        {
+            if (val > 0)
+            {
+                Log.Info(warning);
+            }
+            else
+            {
+                Log.Debug(warning);
+            }
         }
     }
 }

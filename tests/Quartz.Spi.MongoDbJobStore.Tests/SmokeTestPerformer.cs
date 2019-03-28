@@ -16,14 +16,20 @@ namespace Quartz.Tests.Integration.Impl
 {
     public class SmokeTestPerformer
     {
-        public async Task Test(IScheduler scheduler, bool clearJobs, bool scheduleJobs)
+        public async Task Test(IScheduler[] schedulers, bool clearJobs, bool scheduleJobs)
         {
             try
             {
                 if (clearJobs)
                 {
-                    await scheduler.Clear();
+                    foreach (var s in schedulers)
+                    {
+                        await s.Clear();
+                    }
+                    
                 }
+
+                var scheduler = schedulers[0];
 
                 if (scheduleJobs)
                 {
@@ -211,7 +217,11 @@ namespace Quartz.Tests.Integration.Impl
                     await scheduler.GetTriggerKeys(GroupMatcher<TriggerKey>.GroupStartsWith("a").DeepClone());
                     await scheduler.GetTriggerKeys(GroupMatcher<TriggerKey>.GroupEquals("a").DeepClone());
 
-                    await scheduler.Start();
+                    foreach (var s in schedulers)
+                    {
+                        await s.Start();
+                    }
+                    
 
                     Thread.Sleep(TimeSpan.FromSeconds(3));
 
@@ -280,7 +290,11 @@ namespace Quartz.Tests.Integration.Impl
             }
             finally
             {
-                await scheduler.Shutdown(false);
+                foreach (var s in schedulers)
+                {
+                    await s.Shutdown(false);
+                }
+                
             }
         }
 

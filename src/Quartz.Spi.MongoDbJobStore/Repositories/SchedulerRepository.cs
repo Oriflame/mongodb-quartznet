@@ -1,4 +1,7 @@
-﻿using System.Threading.Tasks;
+﻿using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using MongoDB.Driver;
 using Quartz.Spi.MongoDbJobStore.Models;
 using Quartz.Spi.MongoDbJobStore.Models.Id;
@@ -25,11 +28,20 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         {
             await Collection.DeleteOneAsync(sch => sch.Id == new SchedulerId(id, InstanceName));
         }
-
-        public async Task UpdateState(string id, SchedulerState state)
+        
+        public async Task<long> UpdateLastCheckin(string id, DateTimeOffset lastCheckin)
         {
-            await Collection.UpdateOneAsync(sch => sch.Id == new SchedulerId(id, InstanceName),
-                UpdateBuilder.Set(sch => sch.State, state));
+            var updateResult = await Collection.UpdateOneAsync(sch => sch.Id == new SchedulerId(id, InstanceName),
+                UpdateBuilder.Set(sch => sch.LastCheckIn, lastCheckin));
+
+            return updateResult.MatchedCount;
+        }
+
+        public Task<List<Scheduler>> SelectSchedulerStateRecords(string instanceId, CancellationToken cancellationToken)
+        {
+            return instanceId == null ? 
+                Collection.Find(s => s.Id.InstanceName == InstanceName).ToListAsync(cancellationToken: cancellationToken) : 
+                Collection.Find(s => s.Id == new SchedulerId(instanceId, InstanceName)).ToListAsync(cancellationToken: cancellationToken);
         }
     }
 }

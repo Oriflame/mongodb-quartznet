@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using MongoDB.Driver;
 using Quartz.Spi.MongoDbJobStore.Models;
@@ -18,6 +19,12 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
             return
                 await Collection.Find(trigger => trigger.Id.InstanceName == InstanceName && trigger.JobKey == jobKey && trigger.Id.Type == Type).ToListAsync();
         }
+        
+        public async Task<List<FiredTrigger>> GetFiredTriggers(TriggerKey triggerKey)
+        {
+            return
+                await Collection.Find(trigger => trigger.Id.InstanceName == InstanceName && trigger.TriggerKey == triggerKey && trigger.Id.Type == Type).ToListAsync();
+        }
 
         public async Task<List<FiredTrigger>> GetRecoverableFiredTriggers(string instanceId)
         {
@@ -26,6 +33,13 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
                     trigger =>
                         trigger.Id.InstanceName == InstanceName && trigger.InstanceId == instanceId && trigger.Id.Type == Type &&
                         trigger.RequestsRecovery).ToListAsync();
+        }
+        
+        public async Task<List<FiredTrigger>> GetByInstanceId(string instanceId)
+        {
+            return
+                await Collection.Find(trigger =>
+                        trigger.Id.InstanceName == InstanceName && trigger.InstanceId == instanceId && trigger.Id.Type == Type).ToListAsync();
         }
 
         public async Task AddFiredTrigger(FiredTrigger firedTrigger)
@@ -49,6 +63,11 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         public async Task UpdateFiredTrigger(FiredTrigger firedTrigger)
         {
             await Collection.ReplaceOneAsync(trigger => trigger.Id == firedTrigger.Id, firedTrigger);
+        }
+
+        public Task<List<string>> SelectFiredTriggerInstanceIds()
+        {
+            return Collection.Distinct(trigger => trigger.InstanceId, trigger => trigger.Id.InstanceName == InstanceName && trigger.Id.Type == Type).ToListAsync();
         }
     }
 }

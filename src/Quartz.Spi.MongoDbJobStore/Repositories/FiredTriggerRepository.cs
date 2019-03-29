@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MongoDB.Driver;
@@ -65,9 +66,16 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
             await Collection.ReplaceOneAsync(trigger => trigger.Id == firedTrigger.Id, firedTrigger);
         }
 
-        public Task<List<string>> SelectFiredTriggerInstanceIds()
+        public async Task<List<string>> SelectFiredTriggerInstanceIds()
         {
-            return Collection.Distinct(trigger => trigger.InstanceId, trigger => trigger.Id.InstanceName == InstanceName && trigger.Id.Type == Type).ToListAsync();
+            var instances = await Collection.Find(FilterBuilder.And(
+                    FilterBuilder.Eq(x => x.Id.InstanceName, InstanceName), 
+                    FilterBuilder.Eq(x => x.Id.Type, Type)))
+                .Project(x => x.InstanceId).ToListAsync();
+            return instances.Distinct().ToList();
+
+            // Does not work with CosmosDB :-(          
+            // return Collection.Distinct(trigger => trigger.InstanceId, trigger => trigger.Id.InstanceName == InstanceName && trigger.Id.Type == Type).ToListAsync();
         }
     }
 }

@@ -23,20 +23,26 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
 
         public async Task<List<JobKey>> GetJobsKeys(GroupMatcher<JobKey> matcher)
         {
-            return
-                await Collection.Find(FilterBuilder.And(
+            return await Collection.Find(FilterBuilder.And(
                     FilterBuilder.Eq(detail => detail.Id.InstanceName, InstanceName),
                     FilterBuilder.Eq(detail => detail.Id.Type, Type),
                     FilterBuilder.Regex(detail => detail.Id.Group, matcher.ToBsonRegularExpression())))
-                    .Project(detail => detail.Id.GetJobKey())
-                    .ToListAsync();
+                .Project(detail => detail.Id.GetJobKey())
+                .ToListAsync();
         }
 
         public async Task<IEnumerable<string>> GetJobGroupNames()
         {
-            return await Collection
-                .Distinct(detail => detail.Id.Group, detail => detail.Id.InstanceName == InstanceName && detail.Id.Type == Type)
-                .ToListAsync();
+            var groups = await Collection.Find(FilterBuilder.And(
+                    FilterBuilder.Eq(detail => detail.Id.InstanceName, InstanceName), 
+                    FilterBuilder.Eq(detail => detail.Id.Type, Type)))
+                .Project(x => x.Id).ToListAsync(); // For unknown reason .Project(x => x.Id.Group) returns null :(
+            return groups.Select(x => x.Group).Distinct().ToList();
+            
+// Does not work with CosmosDB :-(            
+//            return await Collection
+//                .Distinct(detail => detail.Id.Group, detail => detail.Id.InstanceName == InstanceName && detail.Id.Type == Type)
+//                .ToListAsync();
         } 
 
         public async Task AddJob(JobDetail jobDetail)

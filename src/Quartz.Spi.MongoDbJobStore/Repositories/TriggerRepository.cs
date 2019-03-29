@@ -78,17 +78,32 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
 
         public async Task<List<string>> GetTriggerGroupNames()
         {
-            return await Collection.Distinct(trigger => trigger.Id.Group,
-                trigger => trigger.Id.InstanceName == InstanceName && trigger.Id.Type == Type)
-                .ToListAsync();
+            var groups = await Collection.Find(FilterBuilder.And(
+                    FilterBuilder.Eq(x => x.Id.InstanceName, InstanceName), 
+                    FilterBuilder.Eq(x => x.Id.Type, Type)))
+                .Project(x => x.Id).ToListAsync(); // For unknown reason .Project(x => x.Id.Group) returns null :(
+            return groups.Select(x => x.Group).Distinct().ToList();
+
+// Does not work with CosmosDB :-(
+//            return await Collection.Distinct(trigger => trigger.Id.Group,
+//                trigger => trigger.Id.InstanceName == InstanceName && trigger.Id.Type == Type)
+//                .ToListAsync();
         }
 
         public async Task<List<string>> GetTriggerGroupNames(GroupMatcher<TriggerKey> matcher)
         {
-            var regex = matcher.ToBsonRegularExpression().ToRegex();
-            return await Collection.Distinct(trigger => trigger.Id.Group,
-                    trigger => trigger.Id.InstanceName == InstanceName && regex.IsMatch(trigger.Id.Group) && trigger.Id.Type == Type)
-                .ToListAsync();
+            var groups = await Collection.Find(FilterBuilder.And(
+                    FilterBuilder.Eq(x => x.Id.InstanceName, InstanceName),
+                    FilterBuilder.Eq(x => x.Id.Type, Type),
+                    FilterBuilder.Regex(x => x.Id.Group, matcher.ToBsonRegularExpression().ToRegex())))
+                .Project(x => x.Id).ToListAsync(); // For unknown reason .Project(x => x.Id.Group) returns null :(
+            return groups.Select(x => x.Group).Distinct().ToList();
+
+// Does not work with CosmosDB :-(
+//            var regex = matcher.ToBsonRegularExpression().ToRegex();
+//            return await Collection.Distinct(trigger => trigger.Id.Group,
+//                    trigger => trigger.Id.InstanceName == InstanceName && regex.IsMatch(trigger.Id.Group) && trigger.Id.Type == Type)
+//                .ToListAsync();
         }
 
         public async Task<List<TriggerKey>> GetTriggersToAcquire(DateTimeOffset noLaterThan, DateTimeOffset noEarlierThan,

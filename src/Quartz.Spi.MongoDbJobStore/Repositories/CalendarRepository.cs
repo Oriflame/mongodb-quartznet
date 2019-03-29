@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using MongoDB.Driver;
 using Quartz.Spi.MongoDbJobStore.Models;
@@ -28,9 +29,17 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
 
         public async Task<IEnumerable<string>> GetCalendarNames()
         {
-            return await Collection.Distinct(calendar => calendar.Id.CalendarName,
-                calendar => calendar.Id.InstanceName == InstanceName && calendar.Id.Type == Type)
-                .ToListAsync();
+            var names = await Collection.Find(FilterBuilder.And(
+                    FilterBuilder.Eq(x => x.Id.InstanceName, InstanceName), 
+                    FilterBuilder.Eq(x => x.Id.Type, Type)))
+                .Project(detail => detail.Id.CalendarName).ToListAsync();
+            return names.Distinct().ToList();
+
+// Does not work with CosmosDB :-(            
+//            return await Collection.Distinct(calendar => calendar.Id.CalendarName,
+//                calendar => calendar.Id.InstanceName == InstanceName && calendar.Id.Type == Type)
+//                .ToListAsync();
+            
         } 
 
         public async Task<long> GetCount()

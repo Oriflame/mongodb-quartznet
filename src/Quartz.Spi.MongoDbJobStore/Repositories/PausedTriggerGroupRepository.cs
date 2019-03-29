@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using MongoDB.Driver;
 using Quartz.Impl.Matchers;
@@ -17,9 +18,9 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
 
         public async Task<List<string>> GetPausedTriggerGroups()
         {
-            return await Collection.Find(group => group.Id.InstanceName == InstanceName && group.Id.Type == Type)
-                .Project(group => group.Id.Group)
-                .ToListAsync();
+            var groups = await Collection.Find(x => x.Id.InstanceName == InstanceName && x.Id.Type == Type)
+                .Project(x => x.Id).ToListAsync(); // For unknown reason .Project(x => x.Id.Group) returns null :(
+            return groups.Select(x => x.Group).Distinct().ToList();
         }
 
         public async Task<bool> IsTriggerGroupPaused(string group)

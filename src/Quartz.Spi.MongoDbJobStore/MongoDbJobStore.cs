@@ -162,7 +162,7 @@ namespace Quartz.Spi.MongoDbJobStore
                 await _schedulerRepository.AddScheduler(new Scheduler
                 {
                     Id = _schedulerId,
-                    LastCheckIn = DateTime.Now,
+                    LastCheckIn = DateTime.UtcNow,
                     CheckInInterval = ClusterCheckinInterval
                 });
                 
@@ -1660,7 +1660,7 @@ namespace Quartz.Spi.MongoDbJobStore
 
             if (firstCheckIn || failedRecords != null && failedRecords.Count > 0)
             {
-                using (_lockManager.AcquireLock(LockType.StateAccess, requestorId))
+                using (await _lockManager.AcquireLock(LockType.StateAccess, requestorId))
                 {
                     // Now that we own the lock, make sure we still have work to do.
                     // The first time through, we also need to make sure we update/create our state record
@@ -1675,7 +1675,7 @@ namespace Quartz.Spi.MongoDbJobStore
 
                     if (failedRecords.Count > 0)
                     {
-                        using (_lockManager.AcquireLock(LockType.TriggerAccess, requestorId))
+                        using (await _lockManager.AcquireLock(LockType.TriggerAccess, requestorId))
                         {
                             await ClusterRecover(failedRecords, cancellationToken).ConfigureAwait(false);
                             recovered = true;

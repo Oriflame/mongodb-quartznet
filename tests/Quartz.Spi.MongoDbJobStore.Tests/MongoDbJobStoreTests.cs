@@ -1,14 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Common.Logging;
 using Quartz.Impl.Matchers;
 using Quartz.Spi.MongoDbJobStore.Tests.Jobs;
 using Quartz.Tests.Integration.Impl;
 using FluentAssertions;
+using Quartz.Logging;
+using Quartz.Spi.CosmosDbJobStore.Tests;
 using Xunit;
+using Xunit.Abstractions;
 
 [assembly: CollectionBehavior(DisableTestParallelization = true)]
 
@@ -18,9 +21,12 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
     {
         private IScheduler[] _schedulers;
 
-        public MongoDbJobStoreTests()
+
+        public MongoDbJobStoreTests(ITestOutputHelper output)
         {
-            _schedulers = CreateSchedulers(10);
+            LogProvider.SetCurrentLogProvider(new XunitConsoleLogProvider(output)); // Setup Quartz.NET logger
+            LogManager.Adapter = new XunitConsoleLogAdapter(output); // Setup Common.logging
+            _schedulers = CreateSchedulers(3);
             
             foreach (var s in _schedulers)
             {
@@ -30,10 +36,7 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
 
         public void Dispose()
         {
-            foreach (var s in _schedulers)
-            {
-                s.Shutdown().Wait();
-            }
+            ShutdownAllSchedulers(false).Wait();
         }
 
         [Fact]
@@ -232,9 +235,9 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
            var jobExecTimestamps = new List<DateTime>();
            var barrier = new Barrier(2);
 
-           Scheduler.Context.Put(Barrier, barrier);
-           Scheduler.Context.Put(DateStamps, jobExecTimestamps);
-           await SchedulerStart();
+           SimpleJobWithSync.Context[Barrier] = barrier;
+           SimpleJobWithSync.Context[DateStamps] = jobExecTimestamps;
+           await StartAllSchedulers();
 
            Thread.Yield();
 
@@ -252,7 +255,7 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
 
            barrier.SignalAndWait(TestTimeout);
 
-           await Scheduler.Shutdown(false);
+           await ShutdownAllSchedulers(false);
 
            var fTime = jobExecTimestamps[0];
 
@@ -267,10 +270,10 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
 
            await Scheduler.Clear();
 
-           Scheduler.Context.Put(Barrier, barrier);
-           Scheduler.Context.Put(DateStamps, jobExecTimestamps);
+           SimpleJobWithSync.Context[Barrier] = barrier;
+           SimpleJobWithSync.Context[DateStamps] = jobExecTimestamps;
 
-           await SchedulerStart();
+           await StartAllSchedulers();
 
            Thread.Yield();
 
@@ -285,7 +288,7 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
 
            barrier.SignalAndWait(TestTimeout);
 
-           await Scheduler.Shutdown(false);
+           await ShutdownAllSchedulers(false);
 
            var fTime = jobExecTimestamps[0];
 
@@ -300,8 +303,8 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
 
            var barrier = new Barrier(2);
 
-           Scheduler.Context.Put(Barrier, barrier);
-           Scheduler.Context.Put(DateStamps, jobExecTimestamps);
+           SimpleJobWithSync.Context[Barrier] = barrier;
+           SimpleJobWithSync.Context[DateStamps] = jobExecTimestamps;
 
            var job1 = JobBuilder.Create<SimpleJobWithSync>().WithIdentity("job1").Build();
            var trigger1 = TriggerBuilder.Create().ForJob(job1).Build();
@@ -309,11 +312,11 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
            var sTime = DateTime.UtcNow;
 
            await Scheduler.ScheduleJob(job1, trigger1);
-           await SchedulerStart();
+           await StartAllSchedulers();
 
            barrier.SignalAndWait(TestTimeout);
 
-           await Scheduler.Shutdown(false);
+           await ShutdownAllSchedulers(false);
 
            var fTime = jobExecTimestamps[0];
 
@@ -345,7 +348,7 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
            (triggersOfJob.Contains(trigger1)).Should().BeTrue();
            (triggersOfJob.Contains(trigger2)).Should().BeTrue();
 
-           await Scheduler.Shutdown(false);
+           await ShutdownAllSchedulers(false);
         }
 
         [Fact]
@@ -392,9 +395,9 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
             var barrier = new Barrier(2);
             try
             {
-                Scheduler.Context.Put(Barrier, barrier);
-                Scheduler.Context.Put(DateStamps, jobExecTimestamps);
-                await SchedulerStart();
+                SimpleJobWithSync.Context[Barrier] = barrier;
+                SimpleJobWithSync.Context[DateStamps] = jobExecTimestamps;
+                await StartAllSchedulers();
                 var jobName = Guid.NewGuid().ToString();
                 await Scheduler.AddJob(JobBuilder.Create<SimpleJobWithSync>().WithIdentity(jobName).StoreDurably().Build(),
                     false);
@@ -406,7 +409,7 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
             }
             finally
             {
-                await Scheduler.Shutdown(false);
+                await ShutdownAllSchedulers(false);
             }
 
             barrier.SignalAndWait(TestTimeout);
@@ -420,9 +423,9 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
             var barrier = new Barrier(2);
             try
             {
-                Scheduler.Context.Put(Barrier, barrier);
-                Scheduler.Context.Put(DateStamps, jobExecTimestamps);
-                await SchedulerStart();
+                SimpleJobWithSync.Context[Barrier] = barrier;
+                SimpleJobWithSync.Context[DateStamps] = jobExecTimestamps;
+                await StartAllSchedulers();
                 var jobName = Guid.NewGuid().ToString();
                 await Scheduler.AddJob(JobBuilder.Create<SimpleJobWithSync>().WithIdentity(jobName).StoreDurably().Build(),
                     false);
@@ -438,7 +441,7 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
                 {
                     try
                     {
-                        await Scheduler.Shutdown(true);
+                        await ShutdownAllSchedulers(true);
                         shutdown = true;
                     }
                     catch (SchedulerException ex)
@@ -517,7 +520,7 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
             }
         }
         
-        private async Task SchedulerStart()
+        private async Task StartAllSchedulers()
         {
             for (int i = 0; i < _schedulers.Length; i++)
             {
@@ -525,5 +528,12 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
             }
         }
 
+        private async Task ShutdownAllSchedulers(bool waitForJobsToComplete)
+        {
+            for (int i = 0; i < _schedulers.Length; i++)
+            {
+                await _schedulers[i].Shutdown(waitForJobsToComplete);
+            }
+        }
     }
 }

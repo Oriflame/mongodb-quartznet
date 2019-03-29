@@ -29,7 +29,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
             await Collection.DeleteOneAsync(sch => sch.Id == new SchedulerId(id, InstanceName));
         }
         
-        public async Task<long> UpdateLastCheckin(string id, DateTimeOffset lastCheckin)
+        public async Task<long> UpdateLastCheckin(string id, DateTime lastCheckin)
         {
             var updateResult = await Collection.UpdateOneAsync(sch => sch.Id == new SchedulerId(id, InstanceName),
                 UpdateBuilder.Set(sch => sch.LastCheckIn, lastCheckin));
@@ -40,7 +40,7 @@ namespace Quartz.Spi.MongoDbJobStore.Repositories
         public Task<List<Scheduler>> SelectSchedulerStateRecords(string instanceId, CancellationToken cancellationToken)
         {
             return instanceId == null ? 
-                Collection.Find(s => s.Id.InstanceName == InstanceName).ToListAsync(cancellationToken: cancellationToken) : 
+                Collection.Find(s => s.Id.InstanceName == InstanceName && s.Id.Type == Type).ToListAsync(cancellationToken: cancellationToken) : 
                 Collection.Find(s => s.Id == new SchedulerId(instanceId, InstanceName)).ToListAsync(cancellationToken: cancellationToken);
         }
     }

@@ -7,12 +7,15 @@ namespace Quartz.Spi.MongoDbJobStore.Tests.Jobs
 {
     public class SimpleJobWithSync : IJob
     {
+        public static readonly Dictionary<string,object> Context = new Dictionary<string, object>();
+        
+        
         public Task Execute(IJobExecutionContext context)
         {
             try
             {
-                var jobExecTimestamps = (List<DateTime>) context.Scheduler.Context.Get(BaseStoreTests.DateStamps);
-                var barrier = (Barrier) context.Scheduler.Context.Get(BaseStoreTests.Barrier);
+                var jobExecTimestamps = (List<DateTime>) Context[BaseStoreTests.DateStamps];
+                var barrier = (Barrier) Context[BaseStoreTests.Barrier];
 
                 jobExecTimestamps.Add(DateTime.UtcNow);
 

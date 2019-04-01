@@ -27,7 +27,8 @@ namespace Quartz.Spi.MongoDbJobStore.Tests
                     [StdSchedulerFactory.PropertySchedulerInstanceId] = $"{Environment.MachineName}-{Guid.NewGuid()}",
                     [StdSchedulerFactory.PropertyJobStoreType] = typeof(MongoDbJobStore).AssemblyQualifiedName,
                     [$"{StdSchedulerFactory.PropertyJobStorePrefix}.{StdSchedulerFactory.PropertyDataSourceConnectionString}"]
-                        = "mongodb://localhost:32768/quartz",
+//                        = "mongodb://localhost:32768/quartz",
+                        = "mongodb://notificationsmongo-dev:QSqCAqHSnTh98WWDCPgDSwCttRqWAPvHlJBGMDTrnxMimEumZAyF4Kf61GRUW7dc8526nrtc4t346ZHSN3ECvg==@notificationsmongo-dev.documents.azure.com:10255/notificationservice?ssl=true&replicaSet=globaldb",
                     [$"{StdSchedulerFactory.PropertyJobStorePrefix}.collectionPrefix"] = "quartztest"
                 };
                 var factory = new HackedStdSchedulerFactory(properties);

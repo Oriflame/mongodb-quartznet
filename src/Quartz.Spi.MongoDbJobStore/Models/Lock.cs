@@ -21,5 +21,12 @@ namespace Quartz.Spi.MongoDbJobStore.Models
         public string InstanceId { get; set; }
 
         public DateTime AquiredAt { get; set; }
+
+        /// <summary>
+        /// CosmosDB TTL Style. Pure MongoDB uses AquiredAt index.
+        /// https://docs.microsoft.com/en-us/azure/cosmos-db/mongodb-time-to-live
+        /// </summary>
+        [BsonElement("ttl")]
+        public int TimeToLive { get; set; } = 30;
     }
 }

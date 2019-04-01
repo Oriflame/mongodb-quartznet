@@ -78,8 +78,6 @@ namespace Quartz.Spi.MongoDbJobStore.Models
 
         public int Priority { get; set; }
 
-        public string Type { get; set; }
-
         public JobDataMap JobDataMap { get; set; }
 
         public abstract ITrigger GetTrigger();

@@ -70,7 +70,7 @@ namespace Quartz.Spi.MongoDbJobStore
         {
             if (!_pendingLocks.TryAdd(lockInstance.LockType, lockInstance))
             {
-                throw new Exception($"Unable to add lock instance for lock {lockInstance.LockType} on {lockInstance.InstanceId}");
+                Log.Warn($"Unable to add lock lock {lockInstance.LockType} on {lockInstance.InstanceId}");
             }
         }
 

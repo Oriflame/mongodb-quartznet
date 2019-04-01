@@ -397,6 +397,17 @@ namespace Quartz.Tests.Integration.Impl
             return Task.FromResult(0);
         }
     }
+    
+    public class SuperGenericJobType<T> : IJob
+    {
+        public static int TriggeredCount { get; private set; }
+
+        public Task Execute(IJobExecutionContext context)
+        {
+            TriggeredCount++;
+            return Task.FromResult(0);
+        }
+    }
 
     public class SimpleRecoveryJob : IJob
     {
